@@ -9,7 +9,9 @@ import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { FiCalendar, FiUser, FiClock } from 'react-icons/fi';
 import { RichText } from 'prismic-dom';
+import Link from 'next/link';
 
+import Comments from '../../components/Comments';
 import { getPrismicClient } from '../../services/prismic';
 
 import commonStyles from '../../styles/common.module.scss';
@@ -35,11 +37,27 @@ interface Post {
   };
 }
 
-interface PostProps {
-  post: Post;
+interface PostLink {
+  uid?: string;
+  data: {
+    title: string;
+  };
 }
 
-export default function Post({ post }: PostProps): ReactElement {
+interface PostProps {
+  post: Post;
+  navigation: {
+    previous: PostLink[];
+    next: PostLink[];
+  };
+  preview: boolean;
+}
+
+export default function Post({
+  post,
+  preview,
+  navigation,
+}: PostProps): ReactElement {
   const { isFallback } = useRouter();
 
   if (isFallback) return <strong>Carregando...</strong>;
@@ -47,9 +65,9 @@ export default function Post({ post }: PostProps): ReactElement {
   const wordsCount = post.data.content.reduce((total, section) => {
     total += section.heading.split(' ').length;
 
-    const bodyWordsCount = section.body.map(
-      item => item.text.split(' ').length
-    );
+    const bodyWordsCount = section.body.map(item => {
+      return item.text?.split(' ').length ?? 0;
+    });
 
     // eslint-disable-next-line no-return-assign
     bodyWordsCount.forEach(count => (total += count));
@@ -66,6 +84,18 @@ export default function Post({ post }: PostProps): ReactElement {
       locale: ptBR,
     }
   );
+
+  const isEdited = post.first_publication_date !== post.last_publication_date;
+
+  const editionDate = isEdited
+    ? format(
+        new Date(post.last_publication_date),
+        "'* editado em' dd MMM yyyy', às' H':'m",
+        {
+          locale: ptBR,
+        }
+      )
+    : undefined;
 
   return (
     <>
@@ -86,6 +116,7 @@ export default function Post({ post }: PostProps): ReactElement {
                 <FiClock /> {expectedReadTime} min
               </li>
             </ul>
+            {isEdited && <span>{editionDate}</span>}
           </div>
           {post.data.content.map(section => {
             return (
@@ -101,6 +132,39 @@ export default function Post({ post }: PostProps): ReactElement {
             );
           })}
         </article>
+
+        <section className={styles.navigation}>
+          {navigation?.previous.length > 0 ? (
+            <div>
+              <h3>{navigation.previous[0].data.title}</h3>
+              <Link href={`/post/${navigation.previous[0].uid}`}>
+                <a>Post anterior</a>
+              </Link>
+            </div>
+          ) : (
+            <div />
+          )}
+          {navigation?.next.length > 0 ? (
+            <div>
+              <h3>{navigation.next[0].data.title}</h3>
+              <Link href={`/post/${navigation.next[0].uid}`}>
+                <a>Próximo post</a>
+              </Link>
+            </div>
+          ) : (
+            <div />
+          )}
+        </section>
+
+        <Comments />
+
+        {preview && (
+          <aside>
+            <Link href="/api/exit-preview">
+              <a className={commonStyles.preview}>Sair do modo Preview</a>
+            </Link>
+          </aside>
+        )}
       </main>
     </>
   );
@@ -141,12 +205,34 @@ interface IParams extends ParsedUrlQuery {
   slug: string;
 }
 
-export const getStaticProps: GetStaticProps = async (
-  context
-): Promise<GSPropsReturn> => {
+export const getStaticProps: GetStaticProps = async ({
+  params,
+  preview = false,
+  previewData,
+}): Promise<GSPropsReturn> => {
   const prismic = getPrismicClient();
-  const { slug } = context.params as IParams;
-  const response = await prismic.getByUID('posts', String(slug), {});
+  const { slug } = params as IParams;
+  const response = await prismic.getByUID('posts', String(slug), {
+    ref: previewData?.ref || null,
+  });
+
+  const previous = await prismic.query(
+    [Prismic.predicates.at('document.type', 'posts')],
+    {
+      pageSize: 1,
+      after: response.id,
+      orderings: '[document.first_publication_date]',
+    }
+  );
+
+  const next = await prismic.query(
+    [Prismic.predicates.at('document.type', 'posts')],
+    {
+      pageSize: 1,
+      after: response.id,
+      orderings: '[document.last_publication_date]',
+    }
+  );
 
   const post = {
     uid: response.uid,
@@ -171,6 +257,11 @@ export const getStaticProps: GetStaticProps = async (
   return {
     props: {
       post,
+      navigation: {
+        previous: previous?.results,
+        next: next?.results,
+      },
+      preview,
     },
     revalidate: 60 * 3 * 10,
   };

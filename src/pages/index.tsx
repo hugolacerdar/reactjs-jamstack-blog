@@ -30,9 +30,13 @@ interface PostPagination {
 
 interface HomeProps {
   postsPagination: PostPagination;
+  preview: boolean;
 }
 
-export default function Home({ postsPagination }: HomeProps): ReactElement {
+export default function Home({
+  postsPagination,
+  preview,
+}: HomeProps): ReactElement {
   const formattedPosts = postsPagination.results.map(post => {
     return {
       ...post,
@@ -107,6 +111,13 @@ export default function Home({ postsPagination }: HomeProps): ReactElement {
             </button>
           )}
         </section>
+        {preview && (
+          <aside>
+            <Link href="/api/exit-preview">
+              <a className={commonStyles.preview}>Sair do modo Preview</a>
+            </Link>
+          </aside>
+        )}
       </main>
     </>
   );
@@ -117,7 +128,9 @@ interface GSPReturn {
   revalidate: number;
 }
 
-export const getStaticProps: GetStaticProps = async (): Promise<GSPReturn> => {
+export const getStaticProps: GetStaticProps = async ({
+  preview = false,
+}): Promise<GSPReturn> => {
   const prismic = getPrismicClient();
   const postsResponse = await prismic.query(
     [Prismic.predicates.at('document.type', 'posts')],
@@ -147,6 +160,7 @@ export const getStaticProps: GetStaticProps = async (): Promise<GSPReturn> => {
   return {
     props: {
       postsPagination,
+      preview,
     },
     revalidate: 60 * 3 * 10,
   };
